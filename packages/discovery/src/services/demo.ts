@@ -1,4 +1,4 @@
-import type { ProductProfile, StoreLead } from "../types.js";
+import type { ProductProfile, StoreLead } from "../types";
 
 const demoStores = [
   ["Field & Form", "12 Mercer Street, New York, NY", "buyers@fieldandform.example", "+1 212 555 0142", 4.8, 284],

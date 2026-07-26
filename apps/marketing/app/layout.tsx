@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Stockist App — Find retail partners",
+  title: "Stockist — Find the right stores for your product",
   description:
-    "Analyze your product and discover contact-ready retail partners.",
+    "Turn your product website into a contact-ready list of retail partners.",
 };
 
 export default function RootLayout({

@@ -1,13 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { assertPublicUrl, normalizeWebsite } from "../lib/url.js";
-import type { DiscoveryResponse } from "../types.js";
-import { analyzeProduct } from "./context.js";
-import { enrichContacts } from "./contacts.js";
-import { createDemoLeads } from "./demo.js";
-import { createSearchStrategy } from "./llm.js";
-import { findPlaces } from "./places.js";
-import { rankPlaces } from "./ranking.js";
-import { saveDiscovery } from "./storage.js";
+import { assertPublicUrl, normalizeWebsite } from "../lib/url";
+import type { DiscoveryResponse } from "../types";
+import { analyzeProduct } from "./context";
+import { enrichContacts } from "./contacts";
+import { createDemoLeads } from "./demo";
+import { createSearchStrategy } from "./llm";
+import { findPlaces } from "./places";
+import { rankPlaces } from "./ranking";
 
 export async function discoverStores(input: {
   website: string;
@@ -48,6 +47,5 @@ export async function discoverStores(input: {
     completedAt: new Date().toISOString(),
   };
 
-  void saveDiscovery(response, { website, prompt: input.prompt });
   return response;
 }

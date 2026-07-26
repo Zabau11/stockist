@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import {
   ArrowRight,
   Check,
@@ -28,8 +34,8 @@ import { Textarea } from "@/components/ui/textarea";
 import type { DiscoveryResponse } from "@/lib/types";
 import { LeadCard } from "./lead-card";
 
-const apiUrl = (
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000"
+const marketingUrl = (
+  process.env.NEXT_PUBLIC_MARKETING_URL ?? "http://localhost:3000"
 ).replace(/\/$/, "");
 
 const loadingSteps = [
@@ -39,24 +45,40 @@ const loadingSteps = [
   "Sourcing public contact details",
 ];
 
-export function DiscoveryApp() {
-  const [website, setWebsite] = useState("");
-  const [prompt, setPrompt] = useState("");
+type DiscoveryAppProps = {
+  initialWebsite?: string;
+  initialPrompt?: string;
+  autoStart?: boolean;
+};
+
+export function DiscoveryApp({
+  initialWebsite = "",
+  initialPrompt = "",
+  autoStart = false,
+}: DiscoveryAppProps) {
+  const [website, setWebsite] = useState(initialWebsite);
+  const [prompt, setPrompt] = useState(initialPrompt);
   const [result, setResult] = useState<DiscoveryResponse | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const didAutoStart = useRef(false);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  const runDiscovery = useCallback(async (
+    submittedWebsite: string,
+    submittedPrompt: string,
+  ) => {
     setError("");
     setResult(null);
     setLoading(true);
 
     try {
-      const response = await fetch(`${apiUrl}/api/discover`, {
+      const response = await fetch("/api/discover", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ website, prompt }),
+        body: JSON.stringify({
+          website: submittedWebsite,
+          prompt: submittedPrompt,
+        }),
       });
       const payload = (await response.json()) as DiscoveryResponse & {
         error?: string;
@@ -71,22 +93,31 @@ export function DiscoveryApp() {
       setResult(payload);
     } catch (requestError) {
       setError(
-        requestError instanceof TypeError
-          ? "The discovery service is not reachable. Make sure the backend is running."
-          : requestError instanceof Error
-            ? requestError.message
-            : "Could not finish the search.",
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not finish the search.",
       );
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    if (!autoStart || didAutoStart.current || !initialWebsite.trim()) return;
+    didAutoStart.current = true;
+    void runDiscovery(initialWebsite, initialPrompt);
+  }, [autoStart, initialPrompt, initialWebsite, runDiscovery]);
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void runDiscovery(website, prompt);
   }
 
   return (
     <div className="min-h-screen bg-background">
       <header className="mx-auto flex h-16 max-w-6xl items-center px-5 sm:px-8">
         <a
-          href="#top"
+          href={marketingUrl}
           className="flex items-center gap-2 text-sm font-semibold tracking-tight"
         >
           <span className="flex size-7 items-center justify-center rounded-lg bg-foreground text-background">

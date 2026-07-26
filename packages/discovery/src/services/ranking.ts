@@ -1,4 +1,4 @@
-import type { ProductProfile, RawPlace, StoreLead } from "../types.js";
+import type { ProductProfile, RawPlace, StoreLead } from "../types";
 
 type EnrichedPlace = RawPlace & {
   email?: string;

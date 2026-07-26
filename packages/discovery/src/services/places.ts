@@ -1,5 +1,5 @@
-import { AppError, readErrorResponse } from "../lib/errors.js";
-import type { RawPlace } from "../types.js";
+import { AppError, readErrorResponse } from "../lib/errors";
+import type { RawPlace } from "../types";
 
 type GooglePlace = {
   id: string;

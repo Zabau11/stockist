@@ -1,5 +1,5 @@
-import { AppError, readErrorResponse } from "../lib/errors.js";
-import type { ProductProfile } from "../types.js";
+import { AppError, readErrorResponse } from "../lib/errors";
+import type { ProductProfile } from "../types";
 
 const productSchema = {
   type: "object",

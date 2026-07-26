@@ -1,5 +1,5 @@
-import { readErrorResponse } from "../lib/errors.js";
-import type { ProductProfile } from "../types.js";
+import { readErrorResponse } from "../lib/errors";
+import type { ProductProfile } from "../types";
 
 type SearchStrategy = {
   queries: string[];

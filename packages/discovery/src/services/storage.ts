@@ -1,5 +1,5 @@
 import { createSign } from "node:crypto";
-import type { DiscoveryResponse } from "../types.js";
+import type { DiscoveryResponse } from "../types";
 
 type FirestoreValue =
   | { nullValue: null }

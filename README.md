@@ -13,44 +13,61 @@ Stockist analyzes a manufacturer's website and distribution goal, finds relevant
 
 Without API keys, the app runs in an explicitly labeled sample mode so the full interaction can still be tested.
 
-## Structure
+## Vercel-only structure
 
 ```text
 apps/
-  web/   Next.js 16 App Router + shadcn/ui frontend (Vercel)
-  api/   Node.js + Express API (Railway)
+  marketing/   domain.com landing page (Next.js + shadcn/ui)
+  web/         app.domain.com dashboard and API routes (Next.js + shadcn/ui)
+packages/
+  discovery/   server-only product analysis, store discovery, enrichment, and storage
 ```
+
+The dashboard's Next.js Route Handlers are the Node.js backend. There is no
+separate Express server, CORS layer, or Railway service.
 
 ## Run locally
 
 ```bash
 npm install
+cp apps/marketing/.env.example apps/marketing/.env.local
 cp apps/web/.env.example apps/web/.env.local
-cp apps/api/.env.example apps/api/.env
 npm run dev
 ```
 
-Open `http://localhost:3000`. The API runs on `http://localhost:4000`.
+Open the landing page at `http://localhost:3000` and the dashboard at
+`http://localhost:3001`. The landing form sends the website and prompt to the
+dashboard, which starts the discovery automatically.
 
 ## Environment variables
 
-Backend variables are documented in `apps/api/.env.example`:
+Dashboard variables are documented in `apps/web/.env.example`:
 
 - `CONTEXT_DEV_API_KEY` — structured website extraction
 - `GOOGLE_PLACES_API_KEY` — Places API (New), with Text Search enabled
 - `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL` — any OpenAI-compatible model provider
 - `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` — optional Firestore persistence
-- `FRONTEND_URL` — comma-separated allowed frontend origins
+- `NEXT_PUBLIC_MARKETING_URL` — the landing-page origin
 
-The frontend only needs `NEXT_PUBLIC_API_URL`, set to the public Railway API URL in production.
+The marketing app only needs `NEXT_PUBLIC_DASHBOARD_URL`.
 
 ## Deploy
 
-For Railway, create a service with `apps/api` as its root directory, add the backend variables, and deploy. The included `railway.json` builds the TypeScript API, starts it, and checks `/health`.
+Import this repository into Vercel twice:
 
-For Vercel, import the same repository with `apps/web` as the root directory and set `NEXT_PUBLIC_API_URL` to the Railway service URL.
+1. Create a `stockist-marketing` project with `apps/marketing` as its Root
+   Directory. Set `NEXT_PUBLIC_DASHBOARD_URL=https://app.domain.com` and attach
+   `domain.com`.
+2. Create a `stockist-dashboard` project with `apps/web` as its Root Directory.
+   Add the dashboard variables above, set
+   `NEXT_PUBLIC_MARKETING_URL=https://domain.com`, and attach
+   `app.domain.com`.
 
-Before public launch with live Places data, add public Terms and Privacy pages that incorporate Google Maps' required terms, and retain the `Google Maps` attribution beside live results. Restrict the Google API key to the Places API and the Railway service.
+Before public launch with live Places data, add public Terms and Privacy pages that incorporate Google Maps' required terms, and retain the `Google Maps` attribution beside live results. Restrict the Google API key to the Places API and the dashboard deployment.
+
+The dashboard exposes `GET /api/health` for a lightweight integration check and
+`POST /api/discover` for product-to-store discovery. Both run on Vercel; the
+discovery route uses the Node.js runtime and Fluid Compute.
 
 ## Validation
 

@@ -1,15 +1,14 @@
 {
-  "name": "@stockist/dashboard",
+  "name": "@stockist/marketing",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3001",
+    "dev": "next dev -p 3000",
     "build": "next build",
-    "start": "next start -p 3001",
+    "start": "next start -p 3000",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@stockist/discovery": "*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.468.0",
@@ -17,8 +16,7 @@
     "radix-ui": "^1.6.7",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "tailwind-merge": "^3.3.0",
-    "zod": "^4.1.12"
+    "tailwind-merge": "^3.3.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.0",

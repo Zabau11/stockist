@@ -1,6 +1,6 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { AppError } from "./errors.js";
+import { AppError } from "./errors";
 
 const blockedHosts = new Set(["localhost", "metadata.google.internal"]);
 

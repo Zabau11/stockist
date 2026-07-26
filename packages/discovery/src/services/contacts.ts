@@ -1,6 +1,6 @@
 import * as cheerio from "cheerio";
-import { assertPublicUrl } from "../lib/url.js";
-import type { RawPlace } from "../types.js";
+import { assertPublicUrl } from "../lib/url";
+import type { RawPlace } from "../types";
 
 type ContactDetails = {
   email?: string;
