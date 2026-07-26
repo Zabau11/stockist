@@ -1,0 +1,19 @@
+{
+  "name": "stockist",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n web,api -c cyan,green \"npm run dev -w @stockist/web\" \"npm run dev -w @stockist/api\"",
+    "build": "npm run build -w @stockist/api && npm run build -w @stockist/web",
+    "typecheck": "npm run typecheck -w @stockist/api && npm run typecheck -w @stockist/web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
