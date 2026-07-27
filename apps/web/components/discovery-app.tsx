@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { useRouter } from "next/navigation";
@@ -25,6 +25,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { AIInputWithLoading } from "@/components/ui/ai-input-with-loading";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { chatRepository } from "@/lib/chat-repository";
@@ -32,22 +33,26 @@ import { ProductBriefCard } from "./product-brief-card";
 import type { Conversation, DiscoveryProgress, RetailerResults, StockistMessage } from "@/lib/chat-types";
 import type { ProductBrief, ProductBriefRevision, StoreLead } from "@/lib/types";
 
-const suggestions = ["Find independent stores in London", "Only show stores with email", "Find 25 more in Manchester"];
+const suggestions = [
+  "My product is at yourbrand.com. Find independent stores in London.",
+  "Analyze yourbrand.com and find premium retailers across Romania.",
+  "I sell natural skincare at yourbrand.com and want boutique stockists.",
+];
 
-type DiscoveryAppProps = { initialWebsite?: string; initialPrompt?: string; conversationId?: string };
+type DiscoveryAppProps = { initialQuery?: string; conversationId?: string };
 
 function hostname(value: string) {
   try { return new URL(value).hostname.replace(/^www\./, ""); } catch { return value; }
 }
 
-function titleFor(website: string, prompt: string) {
-  return prompt.trim().split(/\s+/).slice(0, 6).join(" ") || `${hostname(website)} discovery`;
+function titleFor(query: string) {
+  return query.trim().split(/\s+/).slice(0, 6).join(" ") || "New discovery";
 }
 
-export function DiscoveryApp({ initialWebsite = "", initialPrompt = "", conversationId }: DiscoveryAppProps) {
+export function DiscoveryApp({ initialQuery = "", conversationId }: DiscoveryAppProps) {
   const router = useRouter();
-  const [website, setWebsite] = useState(initialWebsite);
-  const [draftPrompt, setDraftPrompt] = useState(initialPrompt);
+  const [website, setWebsite] = useState("");
+  const [draftPrompt, setDraftPrompt] = useState(initialQuery);
   const [conversation, setConversation] = useState<Conversation | undefined>();
   const [history, setHistory] = useState<Conversation[]>([]);
   const [historySearchOpen, setHistorySearchOpen] = useState(false);
@@ -63,14 +68,15 @@ export function DiscoveryApp({ initialWebsite = "", initialPrompt = "", conversa
   const [editingVersion, setEditingVersion] = useState<number | undefined>();
   const [selectedResultSetId, setSelectedResultSetId] = useState<string | undefined>();
   const [initialized, setInitialized] = useState(false);
-  const started = useRef(false);
+  const redirectStarted = useRef(false);
+  const analysisStarted = useRef(false);
 
   const { messages, sendMessage, setMessages, status, stop, error: chatError } = useChat<StockistMessage>({
     id: conversationId,
     transport: new DefaultChatTransport({ api: "/api/chat" }),
   });
   const busy = status === "submitted" || status === "streaming";
-  const handoffLoading = Boolean(conversationId && initialWebsite.trim() && !initialized);
+  const handoffLoading = Boolean(conversationId && initialQuery.trim() && !initialized);
   const messageSignature = useMemo(
     () => messages.map((message) => `${message.id}:${message.parts.map((part) => part.type === "text" ? `text-${part.text.length}` : part.type).join(",")}`).join("|"),
     [messages],
@@ -81,11 +87,11 @@ export function DiscoveryApp({ initialWebsite = "", initialPrompt = "", conversa
   useEffect(() => { void loadHistory(); }, [loadHistory]);
 
   useEffect(() => {
-    if (conversationId || !initialWebsite.trim() || started.current) return;
-    started.current = true;
+    if (conversationId || !initialQuery.trim() || redirectStarted.current) return;
+    redirectStarted.current = true;
     const id = crypto.randomUUID();
-    router.replace(`/dashboard/${id}?website=${encodeURIComponent(initialWebsite)}&prompt=${encodeURIComponent(initialPrompt)}`);
-  }, [conversationId, initialPrompt, initialWebsite, router]);
+    router.replace(`/dashboard/${id}?query=${encodeURIComponent(initialQuery)}`);
+  }, [conversationId, initialQuery, router]);
 
   useEffect(() => {
     if (!conversationId) return;
@@ -95,32 +101,38 @@ export function DiscoveryApp({ initialWebsite = "", initialPrompt = "", conversa
         setConversation(saved); setWebsite(saved.website); setShortlist(saved.shortlistIds); setBriefRevisions(await chatRepository.getBriefRevisions(conversationId));
         setMessages(await chatRepository.getMessages(conversationId)); setInitialized(true); return;
       }
-      if (!initialWebsite.trim()) return;
+      if (!initialQuery.trim()) return;
       const now = new Date().toISOString();
-      const next: Conversation = { id: conversationId, title: titleFor(initialWebsite, initialPrompt), website: initialWebsite, createdAt: now, updatedAt: now, shortlistIds: [], status: "running" };
+      const next: Conversation = { id: conversationId, title: titleFor(initialQuery), website: "", createdAt: now, updatedAt: now, shortlistIds: [], status: "running" };
       await chatRepository.saveConversation(next); setConversation(next); setInitialized(true); await loadHistory();
     })();
-  }, [conversationId, initialPrompt, initialWebsite, loadHistory, setMessages]);
+  }, [conversationId, initialQuery, loadHistory, setMessages]);
 
   useEffect(() => {
-    if (!conversationId || !initialized || started.current) return;
+    if (!conversationId || !initialized || analysisStarted.current) return;
     const hasBrief = messages.some((message) => message.parts.some((part) => part.type === "data-product-brief"));
     const hasAssistantResponse = messages.some((message) => message.role === "assistant");
     if (messages.length > 0 && (hasBrief || hasAssistantResponse)) return;
-    started.current = true;
+    analysisStarted.current = true;
     const savedPrompt = messages.find((message) => message.role === "user")?.parts.filter((part) => part.type === "text").map((part) => part.text).join(" ").trim();
+    const requestText = savedPrompt || initialQuery || (website ? `Analyze ${website} and find suitable retail partners.` : "");
+    if (!requestText) return;
     if (messages.length > 0) setMessages([]);
-    sendMessage({ text: savedPrompt || initialPrompt || "Analyze this product website." }, { body: { action: { type: "analyze_product", conversationId, website, distributionGoal: savedPrompt || initialPrompt }, conversationId, website } });
-  }, [conversationId, initialPrompt, initialized, messages.length, sendMessage, website]);
+    sendMessage({ text: requestText }, { body: { action: { type: "analyze_product", conversationId, query: requestText }, conversationId } });
+    setDraftPrompt("");
+  }, [conversationId, initialQuery, initialized, messages, sendMessage, setMessages, website]);
 
   useEffect(() => {
     if (!conversationId || !initialized) return;
     const latestResult = [...messages].reverse().flatMap((message) => message.parts).find((part) => part.type === "data-retailer-results") as { data: RetailerResults } | undefined;
     const briefPart = [...messages].reverse().flatMap((message) => message.parts).find((part) => part.type === "data-product-brief") as { data: ProductBriefRevision } | undefined;
+    const understandingPart = [...messages].reverse().flatMap((message) => message.parts).find((part) => part.type === "data-request-understanding") as { data: { website: string; distributionGoal: string } } | undefined;
+    const understoodWebsite = briefPart?.data.brief.website ?? understandingPart?.data.website;
+    if (understoodWebsite && understoodWebsite !== website) setWebsite(understoodWebsite);
     if (briefPart) { setBriefRevision(briefPart.data); void chatRepository.saveBriefRevision(briefPart.data); }
-    const next = { ...(conversation ?? { id: conversationId, website, title: titleFor(website, initialPrompt), createdAt: new Date().toISOString(), shortlistIds: [] }), updatedAt: new Date().toISOString(), status: briefPart?.data.status === "draft" ? "awaiting_brief_confirmation" : busy ? "running" : "ready", activeBriefVersion: briefPart?.data.version, activeResultSetId: latestResult?.data.resultSetId } as Conversation;
+    const next = { ...(conversation ?? { id: conversationId, website: understoodWebsite ?? website, title: titleFor(initialQuery), createdAt: new Date().toISOString(), shortlistIds: [] }), website: understoodWebsite ?? website, updatedAt: new Date().toISOString(), status: briefPart?.data.status === "draft" ? "awaiting_brief_confirmation" : busy ? "running" : "ready", activeBriefVersion: briefPart?.data.version, activeResultSetId: latestResult?.data.resultSetId } as Conversation;
     setConversation(next); void chatRepository.saveConversation(next); void chatRepository.saveMessages(conversationId, messages); if (latestResult) { void chatRepository.saveLeads(conversationId, latestResult.data.leads); void chatRepository.saveResultSet(conversationId, latestResult.data); } void loadHistory();
-  }, [busy, conversationId, initialPrompt, initialized, loadHistory, messageSignature, website]);
+  }, [busy, conversationId, initialQuery, initialized, loadHistory, messageSignature, website]);
 
   const resultSets = useMemo(() => {
     const items: RetailerResults[] = [];
@@ -155,8 +167,19 @@ export function DiscoveryApp({ initialWebsite = "", initialPrompt = "", conversa
   function selectResultSet(id: string) { setSelectedResultSetId(id || undefined); const selected = resultSets.find((result) => result.resultSetId === id); const matchingBrief = selected && (briefHistory.find((brief) => brief.version === selected.briefVersion) ?? briefRevisions.find((brief) => brief.version === selected.briefVersion)); if (matchingBrief) setBriefRevision(matchingBrief); }
 
   function newChat() { router.push("/"); setMobileSidebar(false); }
-  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const text = draftPrompt.trim(); if (!text || !conversationId || busy || briefRevision?.status !== "confirmed") return; sendMessage({ text }, { body: { action: { type: "follow_up", conversationId, website, briefVersion: briefRevision.version, brief: briefRevision.brief, leads: results?.leads ?? [], messages }, conversationId, website, leads: results?.leads } }); setDraftPrompt(""); }
-  function beginConversation() { if (!website.trim()) return; const id = crypto.randomUUID(); router.replace(`/dashboard/${id}?website=${encodeURIComponent(website)}&prompt=${encodeURIComponent(draftPrompt)}`); }
+  async function submitPrompt(text: string) { if (!conversationId || busy || briefRevision?.status !== "confirmed") return; await sendMessage({ text }, { body: { action: { type: "follow_up", conversationId, website, briefVersion: briefRevision.version, brief: briefRevision.brief, leads: results?.leads ?? [], messages }, conversationId, website, leads: results?.leads } }); }
+  async function analyzeRequest(value = draftPrompt) {
+    const text = value.trim();
+    if (!text || !conversationId || busy) return;
+    await sendMessage({ text }, { body: { action: { type: "analyze_product", conversationId, query: text }, conversationId } });
+    setDraftPrompt("");
+  }
+  function beginConversation(value = draftPrompt) {
+    const text = value.trim();
+    if (!text) return;
+    const id = crypto.randomUUID();
+    router.replace(`/dashboard/${id}?query=${encodeURIComponent(text)}`);
+  }
   function startBriefEdit() { if (!briefRevision) return; setEditingVersion(briefRevision.status === "confirmed" ? Math.max(0, ...briefRevisions.map((revision) => revision.version), briefRevision.version) + 1 : briefRevision.version); setEditingBrief(true); }
   function cancelBriefEdit() { setEditingBrief(false); setEditingVersion(undefined); }
   function confirmBrief(brief: ProductBrief) { if (!briefRevision || !conversationId) return; const confirmed = { ...briefRevision, version: editingVersion ?? briefRevision.version, brief, status: "confirmed" as const, needsReview: false, updatedAt: new Date().toISOString() }; setBriefRevision(confirmed); setEditingBrief(false); setEditingVersion(undefined); sendMessage({ text: "Confirm and find retailers" }, { body: { action: { type: "confirm_brief", conversationId, revision: confirmed, messages }, conversationId, website } }); }
@@ -180,9 +203,9 @@ export function DiscoveryApp({ initialWebsite = "", initialPrompt = "", conversa
     <main className="flex h-dvh min-h-0 min-w-0 flex-1 flex-col">
       <header className="flex h-16 shrink-0 items-center justify-between border-b px-4 sm:px-6"><div className="flex min-w-0 items-center gap-3"><Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileSidebar(true)} aria-label="Open sidebar"><Menu /></Button><div className="min-w-0"><p className="truncate text-sm font-medium">{conversation?.title ?? "New discovery"}</p>{website && <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><Globe2 className="size-3" />{hostname(website)}</div>}</div></div><div className="flex items-center gap-2">{resultSets.length > 1 && <select aria-label="Result set" value={results?.resultSetId} onChange={(event) => selectResultSet(event.target.value)} className="h-8 max-w-44 rounded-md border bg-background px-2 text-xs"><option value="">Newest result set</option>{resultSets.map((result) => <option key={result.resultSetId} value={result.resultSetId}>Brief v{result.briefVersion} · {result.leads.length} stores</option>)}</select>}{briefRevision?.status === "confirmed" && <Button variant="outline" size="sm" onClick={startBriefEdit}>Product brief</Button>}{results && <><Badge variant="secondary">{shortlist.length} shortlisted</Badge><Button variant="outline" size="sm" onClick={() => exportCsv("all")}><Download className="size-3.5" /> CSV</Button></>}</div></header>
       <div className="min-h-0 flex-1 overflow-y-auto"><div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-4 pb-36 pt-8 sm:px-8">
-        {messages.length === 0 && !busy && !handoffLoading && <EmptyState website={website} setWebsite={setWebsite} prompt={draftPrompt} setPrompt={setDraftPrompt} onStart={conversationId ? () => sendMessage({ text: draftPrompt || "Analyze this product website." }, { body: { action: { type: "analyze_product", conversationId, website, distributionGoal: draftPrompt }, conversationId, website } }) : beginConversation} />}
         {(handoffLoading || busy) && !briefRevision && <AnalysisLoading progress={progress} website={website} />}
         {messages.map((message) => <MessageView key={message.id} message={message} progress={progress} onSelectLead={setSelectedLead} results={results} shortlist={shortlist} onToggle={toggleShortlist} />)}
+        {!briefRevision && !busy && !handoffLoading && <EmptyState prompt={draftPrompt} setPrompt={setDraftPrompt} onStart={conversationId ? analyzeRequest : beginConversation} hasMessages={messages.length > 0} />}
         {briefRevision && <ProductBriefCard revision={briefRevision} editing={briefRevision.status === "draft" || editingBrief} onEdit={startBriefEdit} onCancel={cancelBriefEdit} onConfirm={confirmBrief} />}
         {runError && (!briefRevision || briefRevision.status === "draft") && <div className="my-4 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm"><p className="font-medium text-destructive">Product analysis couldn’t finish</p><p className="mt-1 text-muted-foreground">{runError.message}</p><Button className="mt-3" size="sm" variant="outline" onClick={() => window.location.reload()}>Try again</Button></div>}
         {chatError && !runError && <div className="my-4 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm"><p className="font-medium text-destructive">The analysis request failed</p><p className="mt-1 text-muted-foreground">{chatError.message || "The server did not return a response."}</p><Button className="mt-3" size="sm" variant="outline" onClick={() => window.location.reload()}>Try again</Button></div>}
@@ -190,7 +213,7 @@ export function DiscoveryApp({ initialWebsite = "", initialPrompt = "", conversa
         {results && <ResultsTable results={results} leads={filteredLeads} query={query} setQuery={setQuery} shortlist={shortlist} onToggle={toggleShortlist} onSelect={setSelectedLead} onExport={exportCsv} />}
       </div></div>
       {selectedLead && <LeadDetail lead={selectedLead} shortlisted={shortlist.includes(selectedLead.id)} onToggle={() => toggleShortlist(selectedLead.id)} onClose={() => setSelectedLead(undefined)} />}
-      {conversationId && briefRevision?.status === "confirmed" && !editingBrief && <form onSubmit={submit} className={`fixed bottom-0 left-0 right-0 border-t bg-background/90 p-4 backdrop-blur lg:left-auto ${collapsed ? "lg:w-[calc(100%-68px)]" : "lg:w-[calc(100%-240px)]"}`}><div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border bg-card p-2 shadow-sm"><Textarea value={draftPrompt} onChange={(event) => setDraftPrompt(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="Ask a follow-up about your retailers…" className="max-h-32 min-h-10 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0" disabled={busy} /><Button type={busy ? "button" : "submit"} size="icon" className="shrink-0 rounded-xl" onClick={busy ? stop : undefined} aria-label={busy ? "Stop" : "Send"}>{busy ? <Square className="size-4 fill-current" /> : <ArrowUp className="size-4" />}</Button></div></form>}
+      {conversationId && briefRevision?.status === "confirmed" && !editingBrief && <div className={`fixed bottom-0 left-0 right-0 border-t bg-background/90 p-4 backdrop-blur lg:left-auto ${collapsed ? "lg:w-[calc(100%-68px)]" : "lg:w-[calc(100%-240px)]"}`}>{busy ? <div className="mx-auto flex max-w-3xl items-center justify-between rounded-2xl border bg-card px-4 py-3 shadow-sm"><span className="text-sm text-muted-foreground">Stockist is thinking…</span><Button type="button" size="sm" variant="outline" onClick={stop}><Square className="size-3.5 fill-current" /> Stop</Button></div> : <AIInputWithLoading id="follow-up-input" placeholder="Ask about your retailers…" onSubmit={submitPrompt} loadingDuration={700} />}</div>}
     </main>
   </div>;
 }
@@ -198,10 +221,10 @@ export function DiscoveryApp({ initialWebsite = "", initialPrompt = "", conversa
 function SidebarBrand({ collapsed = false }: { collapsed?: boolean }) { return <a href="/" className="flex items-center gap-2 px-2 py-2 text-sm font-semibold"><span className="flex size-8 items-center justify-center rounded-xl bg-foreground text-background"><Store className="size-4" /></span>{!collapsed && "Stockist"}</a>; }
 function SidebarAccount({ collapsed = false }: { collapsed?: boolean }) { return <div className="absolute inset-x-0 bottom-0 border-t bg-card/95 px-3 py-3 backdrop-blur"><div className={`flex items-center ${collapsed ? "justify-center" : "gap-2"}`}><span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-secondary text-xs font-medium">SD</span>{!collapsed && <><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">Stockist workspace</p><p className="truncate text-xs text-muted-foreground">Local account</p></div><Button variant="ghost" size="icon" className="size-8" aria-label="Open account menu"><CircleUserRound className="size-4" /></Button></>}</div></div>; }
 function ConversationList({ history, search, activeId, onSelect, onDelete }: { history: Conversation[]; search: string; activeId?: string; onSelect: (id: string) => void; onDelete: (id: string) => void }) { const visible = history.filter((item) => !search.trim() || item.title.toLowerCase().includes(search.toLowerCase())); return <div className="mt-5 min-h-0 flex-1 space-y-5 overflow-y-auto pe-1"><div className="flex items-center justify-between px-2"><p className="text-xs font-semibold">Recents</p><span className="text-[11px] text-muted-foreground">{visible.length}</span></div>{["Today", "Previous 7 days", "Older"].map((group) => { const items = visible.filter((item) => group === "Today" ? Date.now() - Date.parse(item.updatedAt) < 86400000 : group === "Previous 7 days" ? Date.now() - Date.parse(item.updatedAt) < 604800000 : Date.now() - Date.parse(item.updatedAt) >= 604800000); return items.length ? <section key={group}><p className="mb-2 px-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{group}</p>{items.map((item) => <div key={item.id} className={`group flex items-center gap-1 rounded-lg px-2 py-2 text-sm ${item.id === activeId ? "bg-secondary" : "hover:bg-secondary/70"}`}><button className="min-w-0 flex-1 truncate text-start" onClick={() => onSelect(item.id)}>{item.title}</button><button className="hidden rounded p-1 text-muted-foreground hover:text-destructive group-hover:block" onClick={() => onDelete(item.id)} aria-label={`Delete ${item.title}`}><Trash2 className="size-3.5" /></button></div>)}</section> : null; })}{!visible.length && <p className="px-2 text-xs text-muted-foreground">No conversations found.</p>}</div>; }
-function EmptyState({ website, setWebsite, prompt, setPrompt, onStart }: { website: string; setWebsite: (value: string) => void; prompt: string; setPrompt: (value: string) => void; onStart: () => void }) { return <div className="flex flex-1 flex-col items-center justify-center py-12 text-center sm:py-16"><div className="mb-5 flex size-11 items-center justify-center rounded-2xl bg-secondary"><Sparkles className="size-5" /></div><h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">What should we find?</h1><p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">Start with a product website. We’ll turn it into an editable brief before searching for retailers.</p><Card className="mt-8 w-full max-w-2xl text-start shadow-sm"><div className="flex items-center gap-2 border-b px-4 py-3"><Globe2 className="size-4 shrink-0 text-muted-foreground" /><Input value={website} onChange={(event) => setWebsite(event.target.value)} placeholder="Attach product website, e.g. yourbrand.com" className="h-8 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0" /><Badge variant="secondary" className="shrink-0 text-[11px]">Required</Badge></div><Textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Add context for your product brief (optional)" className="min-h-24 resize-none border-0 bg-transparent px-4 py-3 shadow-none focus-visible:ring-0" /><div className="flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-muted-foreground">Places search starts after you confirm the brief.</p><Button className="gap-2 sm:shrink-0" onClick={onStart} disabled={!website.trim()}>Analyze website <ArrowUp className="size-4" /></Button></div></Card><div className="mt-6 flex max-w-2xl flex-wrap justify-center gap-2">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => setPrompt(suggestion)} className="rounded-full border bg-background px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-foreground hover:text-foreground">{suggestion}</button>)}</div></div>; }
-function AnalysisLoading({ progress, website }: { progress?: DiscoveryProgress; website: string }) { return <div className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center py-16"><div className="rounded-2xl border bg-card p-6 shadow-sm"><div className="flex items-start gap-4"><div className="mt-1 flex size-10 shrink-0 items-center justify-center rounded-xl bg-secondary"><Sparkles className="size-4 animate-pulse" /></div><div className="min-w-0"><p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Product analysis in progress</p><h1 className="mt-1 text-xl font-semibold">Understanding {hostname(website)}</h1><p className="mt-2 text-sm leading-6 text-muted-foreground">We’re reading the product website and preparing an editable brief. Retailer search starts only after you confirm it.</p></div></div><div className="mt-6 rounded-xl bg-secondary/60 p-3 text-sm"><div className="flex items-center gap-2"><span className="size-2 animate-pulse rounded-full bg-primary" />{progress?.label ?? "Connecting to the product analysis service…"}</div><div className="mt-3 h-1.5 overflow-hidden rounded-full bg-background"><div className="h-full w-2/5 animate-pulse rounded-full bg-primary" /></div></div><p className="mt-4 text-xs text-muted-foreground">This can take up to a minute for a live website.</p></div></div>; }
+function EmptyState({ prompt, setPrompt, onStart, hasMessages }: { prompt: string; setPrompt: (value: string) => void; onStart: (value: string) => void | Promise<void>; hasMessages: boolean }) { return <div className={`flex flex-col items-center text-center ${hasMessages ? "py-6" : "flex-1 justify-center py-12 sm:py-16"}`}>{!hasMessages && <><div className="mb-5 flex size-11 items-center justify-center rounded-2xl bg-secondary"><Sparkles className="size-5" /></div><h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">What would you like to find?</h1><p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">Describe the product and distribution goal in your own words. Stockist will build an editable brief before searching.</p></>}<div className={`${hasMessages ? "mt-2" : "mt-8"} w-full max-w-2xl`}><AIInputWithLoading id="initial-discovery-input" value={prompt} onChange={setPrompt} onSubmit={onStart} placeholder={hasMessages ? "Add the missing detail…" : "Example: My product is at yourbrand.com. Find premium independent retailers in London."} loadingDuration={700} /></div>{!hasMessages && <div className="mt-6 w-full max-w-lg text-start">{suggestions.map((suggestion) => <button key={suggestion} type="button" onClick={() => setPrompt(suggestion)} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"><span className="flex size-7 items-center justify-center rounded-lg bg-secondary"><Sparkles className="size-3.5" /></span>{suggestion}</button>)}</div>}</div>; }
+function AnalysisLoading({ progress, website }: { progress?: DiscoveryProgress; website: string }) { return <div className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center py-16"><div className="rounded-2xl border bg-card p-6 shadow-sm"><div className="flex items-start gap-4"><div className="mt-1 flex size-10 shrink-0 items-center justify-center rounded-xl bg-secondary"><Sparkles className="size-4 animate-pulse" /></div><div className="min-w-0"><p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Product analysis in progress</p><h1 className="mt-1 text-xl font-semibold">{website ? `Understanding ${hostname(website)}` : "Understanding your request"}</h1><p className="mt-2 text-sm leading-6 text-muted-foreground">{website ? "We’re reading the product website and preparing an editable brief." : "We’re identifying the product, website, and distribution goal before building the brief."} Retailer search starts only after you confirm it.</p></div></div><AIInputWithLoading autoAnimate loadingDuration={1800} thinkingDuration={500} placeholder={progress?.label ?? "Stockist is analyzing the product…"} className="mt-6" /><div className="rounded-xl bg-secondary/60 p-3 text-sm"><div className="flex items-center gap-2"><span className="size-2 animate-pulse rounded-full bg-primary" />{progress?.label ?? "Understanding your request…"}</div><div className="mt-3 h-1.5 overflow-hidden rounded-full bg-background"><div className="h-full w-2/5 animate-pulse rounded-full bg-primary" /></div></div><p className="mt-4 text-xs text-muted-foreground">Live website analysis can take up to a minute.</p></div></div>; }
 function MessageView({ message, progress, onSelectLead, results, shortlist, onToggle }: { message: StockistMessage; progress?: DiscoveryProgress; onSelectLead: (lead: StoreLead) => void; results?: RetailerResults; shortlist: string[]; onToggle: (id: string) => void }) { const text = message.parts.filter((part) => part.type === "text").map((part) => part.text).join(""); if (!text && message.role !== "assistant") return null; return <article className={`mb-6 flex ${message.role === "user" ? "justify-end" : "justify-start"}`}><div className={message.role === "user" ? "max-w-[80%] rounded-2xl bg-secondary px-4 py-3 text-sm" : "max-w-3xl text-sm leading-7"}>{text && <p className="whitespace-pre-wrap">{text}</p>}{message.role === "assistant" && progress && <ProgressBlock progress={progress} />}{message.role === "assistant" && results && <div className="mt-3 flex flex-wrap gap-2">{results.leads.slice(0, 3).map((lead) => <button key={lead.id} className="rounded-lg border px-2.5 py-1.5 text-xs hover:bg-secondary" onClick={() => onSelectLead(lead)}>{lead.name} · {lead.score}</button>)}</div>}</div></article>; }
-function ProgressBlock({ progress }: { progress: DiscoveryProgress }) { return <details className="mt-4 rounded-xl border bg-card px-3 py-2 text-xs" open={progress.stage !== "complete"}><summary className="cursor-pointer list-none font-medium"><span className="me-2 inline-block size-1.5 rounded-full bg-primary" />{progress.label}<ChevronDown className="ms-2 inline size-3.5" /></summary><p className="mt-2 text-muted-foreground">{progress.candidatesFound ? `${progress.candidatesFound} candidates · ` : ""}{progress.emailsFound ?? 0} public emails found</p></details>; }
+function ProgressBlock({ progress }: { progress: DiscoveryProgress }) { const preparing = ["interpreting_request", "awaiting_request_details", "analyzing_product", "awaiting_brief_confirmation", "planning_search"].includes(progress.stage); return <details className="mt-4 rounded-xl border bg-card px-3 py-2 text-xs" open={progress.stage !== "complete"}><summary className="cursor-pointer list-none font-medium"><span className="me-2 inline-block size-1.5 rounded-full bg-primary" />{progress.label}<ChevronDown className="ms-2 inline size-3.5" /></summary><p className="mt-2 text-muted-foreground">{preparing ? "Retailer search starts after the request is understood and the brief is confirmed." : <>{progress.candidatesFound ? `${progress.candidatesFound} candidates · ` : ""}{progress.emailsFound ?? 0} public emails found</>}</p></details>; }
 function LegacyProductBriefCard({ revision, editing, onEdit, onCancel, onConfirm }: { revision: ProductBriefRevision; editing: boolean; onEdit: () => void; onCancel: () => void; onConfirm: (brief: ProductBrief) => void }) {
   const [draft, setDraft] = useState<ProductBrief>(revision.brief);
   const [errors, setErrors] = useState<string[]>([]);

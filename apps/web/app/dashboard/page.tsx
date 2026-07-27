@@ -2,8 +2,7 @@ import { DiscoveryApp } from "@/components/discovery-app";
 
 type DashboardPageProps = {
   searchParams: Promise<{
-    website?: string | string[];
-    prompt?: string | string[];
+    query?: string | string[];
   }>;
 };
 
@@ -17,9 +16,6 @@ export default async function DashboardPage({
   const params = await searchParams;
 
   return (
-    <DiscoveryApp
-      initialWebsite={firstValue(params.website)}
-      initialPrompt={firstValue(params.prompt)}
-    />
+    <DiscoveryApp initialQuery={firstValue(params.query)} />
   );
 }

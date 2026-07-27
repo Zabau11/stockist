@@ -3,8 +3,7 @@ import { DiscoveryApp } from "@/components/discovery-app";
 type ConversationPageProps = {
   params: Promise<{ conversationId: string }>;
   searchParams: Promise<{
-    website?: string | string[];
-    prompt?: string | string[];
+    query?: string | string[];
   }>;
 };
 
@@ -21,8 +20,7 @@ export default async function ConversationPage({
   return (
     <DiscoveryApp
       conversationId={conversationId}
-      initialWebsite={firstValue(query.website)}
-      initialPrompt={firstValue(query.prompt)}
+      initialQuery={firstValue(query.query)}
     />
   );
 }

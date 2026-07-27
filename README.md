@@ -1,15 +1,16 @@
 # Stockist
 
-Stockist analyzes a manufacturer's website and distribution goal, finds relevant physical retailers, enriches their public business contacts, and ranks the strongest leads.
+Stockist understands a manufacturer's free-form request, analyzes the supplied product website, finds relevant physical retailers, enriches their public business contacts, and ranks the strongest leads.
 
 ## Product flow
 
-1. Context.dev extracts a structured product and retail-fit profile, plus the brand logo, palette, slogan, and typography from the manufacturer's website.
-2. A provider-neutral, OpenAI-compatible LLM adapter creates targeted Google Places searches.
-3. Google Places Text Search finds stores and returns business details.
-4. The backend checks each store's public website and contact page for published email addresses and phone numbers.
-5. Leads are ranked using category fit, reputation, and contactability.
-6. Firebase optionally stores the product analysis, strategy, public contact-source data, and Google Place IDs. Full Google Places responses are not persisted.
+1. Gemini interprets the user's single free-form input into an explicit product website and distribution goal. If the website is missing, the conversation asks for it instead of guessing.
+2. Context.dev extracts a structured product and retail-fit profile, plus the brand logo, palette, slogan, and typography from the manufacturer's website.
+3. A provider-neutral, OpenAI-compatible LLM adapter creates targeted Google Places searches.
+4. Google Places Text Search finds stores and returns business details.
+5. The backend checks each store's public website and contact page for published email addresses and phone numbers.
+6. Leads are ranked using category fit, reputation, and contactability.
+7. Firebase optionally stores the product analysis, strategy, public contact-source data, and Google Place IDs. Full Google Places responses are not persisted.
 
 Without API keys, the app runs in an explicitly labeled sample mode so the full interaction can still be tested.
 
@@ -41,8 +42,9 @@ npm run dev
 ```
 
 Open the landing page at `http://localhost:3000` or the dashboard at
-`http://localhost:3000/dashboard`. The landing form sends the website and
-prompt to the dashboard, which starts the discovery automatically.
+`http://localhost:3000/dashboard`. The landing form sends one natural-language
+request to the dashboard. The LLM understands it first, then starts product
+analysis when an explicit website is available.
 
 ## Environment variables
 

@@ -1,5 +1,5 @@
 import { createGoogle } from "@ai-sdk/google";
-import { createUIMessageStream, createUIMessageStreamResponse, streamText, type UIMessage } from "ai";
+import { createUIMessageStream, createUIMessageStreamResponse, generateText, Output, streamText, type UIMessage } from "ai";
 import { z } from "zod";
 import { analyzeProductBrief, discoverStores, type DiscoveryResponse, type ProductBrief, type ProductBriefRevision } from "@stockist/discovery";
 import type { ChatDataParts, RetailerResults, StockistMessage } from "@/lib/chat-types";
@@ -61,15 +61,84 @@ const revisionSchema = z.object({
 
 const requestSchema = z.object({
   action: z.discriminatedUnion("type", [
-    z.object({ type: z.literal("analyze_product"), conversationId: z.string().uuid(), website: z.string().trim().min(3).max(2048), distributionGoal: z.string().trim().max(1000).default(""), messages: z.array(z.unknown()).max(50) }),
+    z.object({
+      type: z.literal("analyze_product"),
+      conversationId: z.string().uuid(),
+      query: z.string().trim().min(1).max(2000).optional(),
+      website: z.string().trim().min(3).max(2048).optional(),
+      distributionGoal: z.string().trim().max(1000).optional(),
+      messages: z.array(z.unknown()).max(50),
+    }),
     z.object({ type: z.literal("confirm_brief"), conversationId: z.string().uuid(), revision: revisionSchema, messages: z.array(z.unknown()).max(50) }),
     z.object({ type: z.literal("follow_up"), conversationId: z.string().uuid(), website: z.string().trim().min(3).max(2048), briefVersion: z.number().int().positive(), brief: briefSchema, leads: z.array(z.unknown()).max(100).default([]), messages: z.array(z.unknown()).max(50) }),
   ]),
 });
 
+const interpretedRequestSchema = z.object({
+  website: z.string().max(2048).nullable().describe("The exact product website or domain explicitly supplied by the user. Never infer or guess one."),
+  distributionGoal: z.string().max(1000).describe("A concise, complete statement of what retailers or markets the user wants."),
+  clarification: z.string().max(300).nullable().describe("A short question only when the product website is missing."),
+});
+
+type InterpretedRequest = z.infer<typeof interpretedRequestSchema>;
+
 function latestPrompt(messages: UIMessage[]) {
   const message = [...messages].reverse().find((item) => item.role === "user");
   return message?.parts.filter((part) => part.type === "text").map((part) => part.text).join(" ").trim() ?? "";
+}
+
+function userTranscript(messages: UIMessage[], query: string) {
+  const entries = messages
+    .filter((message) => message.role === "user")
+    .map((message) => message.parts.filter((part) => part.type === "text").map((part) => part.text).join(" ").trim())
+    .filter(Boolean);
+  if (!entries.includes(query)) entries.push(query);
+  return entries.join("\n");
+}
+
+function explicitWebsite(text: string) {
+  const match = text.match(/\b(?:https?:\/\/|www\.)[^\s<>"']+|\b(?:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.)+[a-z]{2,}(?:\/[^\s<>"']*)?/i)?.[0];
+  return match?.replace(/[),.;!?]+$/, "");
+}
+
+async function interpretRequest(query: string, messages: UIMessage[]): Promise<InterpretedRequest> {
+  const transcript = userTranscript(messages, query);
+  const fallbackWebsite = explicitWebsite(transcript) ?? null;
+  const fallback: InterpretedRequest = {
+    website: fallbackWebsite,
+    distributionGoal: transcript.slice(0, 1000),
+    clarification: fallbackWebsite ? null : "What is the product website? You can paste the domain or a full URL.",
+  };
+  const key = process.env.GEMINI_KEY ?? process.env.GEMINI_API_KEY;
+  if (!key) return fallback;
+
+  try {
+    const google = createGoogle({ apiKey: key });
+    const result = await generateText({
+      model: google(process.env.GEMINI_MODEL ?? "gemini-3.5-flash-lite"),
+      output: Output.object({ schema: interpretedRequestSchema }),
+      system: [
+        "Interpret a manufacturer's free-form retailer-discovery request.",
+        "Extract the exact product website only if the user explicitly wrote a URL or domain.",
+        "Never guess a domain from a brand name.",
+        "Preserve useful product, retailer, location, price-positioning, and exclusion details in distributionGoal.",
+        "If the website is missing, ask only for the website in clarification.",
+      ].join(" "),
+      prompt: transcript,
+    });
+    const interpreted = result.output;
+    const suppliedWebsite = explicitWebsite(transcript);
+    return {
+      website: suppliedWebsite ?? null,
+      distributionGoal: interpreted.distributionGoal.trim().slice(0, 1000) || transcript.slice(0, 1000),
+      clarification: suppliedWebsite
+        ? null
+        : interpreted.clarification?.trim() || fallback.clarification,
+    };
+  } catch (error) {
+    console.warn("Request interpretation failed:", error);
+    return fallback;
+  }
 }
 
 function hasRequiredBriefFields(brief: ProductBrief) {
@@ -107,7 +176,14 @@ export async function POST(request: Request) {
   const actionCandidate = raw.action ?? nestedBody?.action;
   const action = actionCandidate && typeof actionCandidate === "object"
     ? { ...(actionCandidate as Record<string, unknown>), messages: Array.isArray((actionCandidate as Record<string, unknown>).messages) ? (actionCandidate as Record<string, unknown>).messages : requestMessages }
-    : { type: "analyze_product", conversationId: raw.conversationId ?? nestedBody?.conversationId, website: raw.website ?? nestedBody?.website, distributionGoal: raw.distributionGoal ?? raw.prompt ?? nestedBody?.distributionGoal ?? "", messages: requestMessages };
+    : {
+      type: "analyze_product",
+      conversationId: raw.conversationId ?? nestedBody?.conversationId,
+      query: raw.query ?? raw.prompt ?? nestedBody?.query ?? nestedBody?.prompt,
+      website: raw.website ?? nestedBody?.website,
+      distributionGoal: raw.distributionGoal ?? nestedBody?.distributionGoal,
+      messages: requestMessages,
+    };
   const parsed = requestSchema.safeParse({ ...raw, action });
   if (!parsed.success) return Response.json({ error: "Invalid chat action or product brief.", details: parsed.error.issues }, { status: 400 });
   const input = parsed.data.action;
@@ -119,8 +195,29 @@ export async function POST(request: Request) {
       const writeProgress = (data: ChatDataParts["discovery-progress"]) => writer.write({ type: "data-discovery-progress", id: progressId, data: { ...data, runId } });
       try {
         if (input.type === "analyze_product") {
+          const query = input.query ?? [input.website, input.distributionGoal].filter(Boolean).join(" ");
+          if (!query.trim()) throw new Error("Tell me about the product and the retailers you want to find.");
+          writeProgress({ stage: "interpreting_request", label: "Understanding your request" });
+          const interpreted = await interpretRequest(query, input.messages as UIMessage[]);
+          if (!interpreted.website) {
+            writeProgress({ stage: "awaiting_request_details", label: "Product website needed" });
+            writeText(writer, interpreted.clarification ?? "What is the product website?", `clarification-${runId}`);
+            return;
+          }
+          writer.write({
+            type: "data-request-understanding",
+            id: `understanding-${runId}`,
+            data: {
+              website: interpreted.website,
+              distributionGoal: interpreted.distributionGoal,
+            },
+          });
           writeProgress({ stage: "analyzing_product", label: "Reading the product website" });
-          const analyzed = await analyzeProductBrief({ website: input.website, distributionGoal: input.distributionGoal, conversationId: input.conversationId });
+          const analyzed = await analyzeProductBrief({
+            website: interpreted.website,
+            distributionGoal: interpreted.distributionGoal,
+            conversationId: input.conversationId,
+          });
           writer.write({ type: "data-product-brief", id: `brief-${input.conversationId}-1`, data: analyzed.revision as ProductBriefRevision });
           writeProgress({ stage: "awaiting_brief_confirmation", label: "Review your product brief" });
           writeText(writer, "I extracted a product brief for you to review. Confirm it when the category, market, retailer type, and distribution goal look right.", `summary-${runId}`);

@@ -1,10 +1,7 @@
 import Link from "next/link";
-import { ArrowRight, Globe2, Sparkles, Store } from "lucide-react";
+import { ArrowRight, CalendarDays, Sparkles, Store } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 
 export default function LandingPage() {
   return (
@@ -16,9 +13,6 @@ export default function LandingPage() {
           </span>
           Stockist
         </Link>
-        <Button asChild variant="outline">
-          <Link href="/dashboard">Open app</Link>
-        </Button>
       </header>
 
       <main className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-6xl items-center justify-center px-5 py-16 sm:px-8">
@@ -32,55 +26,25 @@ export default function LandingPage() {
               Find the stores your product belongs in.
             </h1>
             <p className="mx-auto mt-5 max-w-xl text-balance text-base leading-7 text-muted-foreground sm:text-lg">
-              Share your product website and distribution goal. Stockist finds
-              high-fit retailers and the best public way to contact them.
+              Describe your product and what you want to achieve. Stockist
+              understands the request, builds the brief, and finds the right retailers.
             </p>
           </div>
 
-          <Card className="mx-auto mt-9 max-w-2xl shadow-sm">
-            <CardContent>
-              <form action="/dashboard" method="get" className="space-y-4">
-                <div className="space-y-2">
-                  <label htmlFor="website" className="text-sm font-medium">
-                    Product website
-                  </label>
-                  <div className="relative">
-                    <Globe2
-                      className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-                      aria-hidden="true"
-                    />
-                    <Input
-                      id="website"
-                      name="website"
-                      type="text"
-                      inputMode="url"
-                      autoComplete="url"
-                      placeholder="yourbrand.com"
-                      className="h-11 ps-9"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label htmlFor="prompt" className="text-sm font-medium">
-                    What kind of distribution are you looking for?
-                  </label>
-                  <Textarea
-                    id="prompt"
-                    name="prompt"
-                    placeholder="Example: Independent skincare shops in London that carry premium natural brands."
-                    className="min-h-24 resize-none"
-                  />
-                </div>
-
-                <Button type="submit" size="lg" className="w-full">
-                  Find retail partners
-                  <ArrowRight aria-hidden="true" />
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
+          <div className="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
+            <Button asChild size="default" className="h-10 gap-2 px-5">
+              <Link href="/dashboard">
+                Get started
+                <ArrowRight aria-hidden="true" />
+              </Link>
+            </Button>
+            <Button asChild size="default" variant="outline" className="h-10 gap-2 px-5">
+              <a href="mailto:hello@stockist.app?subject=Book%20a%20Stockist%20demo">
+                Book a demo
+                <CalendarDays aria-hidden="true" />
+              </a>
+            </Button>
+          </div>
         </section>
       </main>
     </div>

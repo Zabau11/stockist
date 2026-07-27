@@ -2,6 +2,8 @@ import type { UIMessage } from "ai";
 import type { DiscoveryResponse, ProductBrief, ProductBriefRevision, StoreLead } from "@/lib/types";
 
 export type ProgressStage =
+  | "interpreting_request"
+  | "awaiting_request_details"
   | "analyzing_product"
   | "awaiting_brief_confirmation"
   | "planning_search"
@@ -36,6 +38,7 @@ export type RetailerResults = {
 };
 
 export type ChatDataParts = {
+  "request-understanding": { website: string; distributionGoal: string };
   "product-brief": ProductBriefRevision;
   "discovery-progress": DiscoveryProgress;
   "retailer-results": RetailerResults;
