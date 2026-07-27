@@ -4,7 +4,7 @@ Stockist analyzes a manufacturer's website and distribution goal, finds relevant
 
 ## Product flow
 
-1. Context.dev extracts a structured product and retail-fit profile from the manufacturer's website.
+1. Context.dev extracts a structured product and retail-fit profile, plus the brand logo, palette, slogan, and typography from the manufacturer's website.
 2. A provider-neutral, OpenAI-compatible LLM adapter creates targeted Google Places searches.
 3. Google Places Text Search finds stores and returns business details.
 4. The backend checks each store's public website and contact page for published email addresses and phone numbers.
@@ -48,7 +48,7 @@ prompt to the dashboard, which starts the discovery automatically.
 
 Dashboard variables are documented in `apps/web/.env.example`:
 
-- `CONTEXT_DEV_API_KEY` — structured website extraction
+- `CONTEXT_DEV_API_KEY` — structured product extraction, brand assets, and website styleguide
 - `GOOGLE_PLACES_API_KEY` — Places API (New), with Text Search enabled
 - `GEMINI_KEY` — Gemini API key; defaults to the free-tier `gemini-3.5-flash-lite` model
 - `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL` — optional overrides for another OpenAI-compatible provider or model

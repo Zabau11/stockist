@@ -1,8 +1,9 @@
 import type { UIMessage } from "ai";
-import type { DiscoveryResponse, ProductProfile, StoreLead } from "@/lib/types";
+import type { DiscoveryResponse, ProductBrief, ProductBriefRevision, StoreLead } from "@/lib/types";
 
 export type ProgressStage =
   | "analyzing_product"
+  | "awaiting_brief_confirmation"
   | "planning_search"
   | "searching_places"
   | "enriching_contacts"
@@ -30,10 +31,12 @@ export type RetailerResults = {
   demo: boolean;
   sources: string[];
   strategy?: DiscoveryResponse["strategy"];
+  briefVersion: number;
+  createdAt: string;
 };
 
 export type ChatDataParts = {
-  "product-profile": ProductProfile;
+  "product-brief": ProductBriefRevision;
   "discovery-progress": DiscoveryProgress;
   "retailer-results": RetailerResults;
   "export-ready": { scope: "all" | "shortlist"; filename: string };
@@ -52,8 +55,9 @@ export type Conversation = {
   website: string;
   createdAt: string;
   updatedAt: string;
-  productProfile?: ProductProfile;
+  activeBriefVersion?: number;
+  briefRevisions?: ProductBriefRevision[];
   activeResultSetId?: string;
   shortlistIds: string[];
-  status: "draft" | "running" | "ready" | "interrupted" | "error";
+  status: "draft" | "running" | "awaiting_brief_confirmation" | "ready" | "interrupted" | "error";
 };

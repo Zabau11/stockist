@@ -69,7 +69,7 @@ export async function createSearchStrategy(
         {
           role: "system",
           content:
-            "You are a retail distribution strategist. Return strict JSON with: queries (an array of exactly 4 concise Google Places text searches, each containing a retailer category and a real geographic market) and summary (one sentence). Optimize for stores likely to buy wholesale, not consumers or generic places.",
+            "You are a retail distribution strategist. Return strict JSON with: queries (an array of exactly 4 concise Google Places text searches, each containing a retailer category and a real geographic market) and summary (one sentence). Use the supplied brand identity as positioning and aesthetic-fit context when choosing retailer categories, but never put color hex codes or font names into the searches. Optimize for stores likely to buy wholesale, not consumers or generic places.",
         },
         {
           role: "user",

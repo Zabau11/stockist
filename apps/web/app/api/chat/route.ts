@@ -1,140 +1,179 @@
 import { createGoogle } from "@ai-sdk/google";
-import {
-  createUIMessageStream,
-  createUIMessageStreamResponse,
-  generateText,
-  Output,
-  streamText,
-  type UIMessage,
-} from "ai";
+import { createUIMessageStream, createUIMessageStreamResponse, streamText, type UIMessage } from "ai";
 import { z } from "zod";
-import { discoverStores, type DiscoveryResponse } from "@stockist/discovery";
-import type { ChatDataParts, StockistMessage } from "@/lib/chat-types";
+import { analyzeProductBrief, discoverStores, type DiscoveryResponse, type ProductBrief, type ProductBriefRevision } from "@stockist/discovery";
+import type { ChatDataParts, RetailerResults, StockistMessage } from "@/lib/chat-types";
 import type { StoreLead } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const requestSchema = z.object({
-  messages: z.array(z.unknown()).max(50),
+const assetUrlSchema = z.string().trim().url().max(2048).refine((value) => {
+  const protocol = new URL(value).protocol;
+  return protocol === "https:" || protocol === "http:";
+}, "Use an HTTP or HTTPS URL.");
+
+const brandIdentitySchema = z.object({
+  source: z.enum(["context", "unavailable"]),
+  logoUrl: assetUrlSchema.optional(),
+  iconUrl: assetUrlSchema.optional(),
+  backdropUrl: assetUrlSchema.optional(),
+  slogan: z.string().trim().max(300).optional(),
+  colors: z.array(z.object({
+    hex: z.string().regex(/^#[\dA-F]{6}$/i),
+    name: z.string().trim().max(80).optional(),
+    role: z.enum(["primary", "secondary", "accent", "background", "text", "other"]).optional(),
+  })).max(10),
+  headingFont: z.string().trim().max(200).optional(),
+  bodyFont: z.string().trim().max(200).optional(),
+  mode: z.string().trim().max(40).optional(),
+});
+
+const briefSchema = z.object({
   website: z.string().trim().min(3).max(2048),
+  brandName: z.string().trim().min(1).max(120),
+  brandIdentity: brandIdentitySchema.default({ source: "unavailable", colors: [] }),
+  summary: z.string().trim().min(1).max(1200),
+  categories: z.array(z.string().trim().min(1).max(80)).min(1).max(6),
+  targetCustomer: z.string().trim().min(1).max(500),
+  pricePositioning: z.string().trim().min(1).max(240),
+  distributionGoal: z.string().trim().max(1000),
+  targetMarkets: z.array(z.string().trim().min(1).max(100)).min(1).max(8),
+  idealRetailerTypes: z.array(z.string().trim().min(1).max(100)).min(1).max(8),
+  retailerPreference: z.enum(["independent", "chain", "either"]),
+  differentiators: z.array(z.string().trim().min(1).max(180)).max(8),
+  requirements: z.array(z.string().trim().min(1).max(180)).max(8),
+  exclusions: z.array(z.string().trim().min(1).max(180)).max(8),
+});
+
+const revisionSchema = z.object({
   conversationId: z.string().uuid(),
-  leads: z.array(z.unknown()).max(100).optional(),
+  website: z.string().trim().min(3).max(2048),
+  version: z.number().int().positive(),
+  status: z.enum(["draft", "confirmed"]),
+  source: z.enum(["context", "fallback"]),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  needsReview: z.boolean(),
+  brief: briefSchema,
+});
+
+const requestSchema = z.object({
+  action: z.discriminatedUnion("type", [
+    z.object({ type: z.literal("analyze_product"), conversationId: z.string().uuid(), website: z.string().trim().min(3).max(2048), distributionGoal: z.string().trim().max(1000).default(""), messages: z.array(z.unknown()).max(50) }),
+    z.object({ type: z.literal("confirm_brief"), conversationId: z.string().uuid(), revision: revisionSchema, messages: z.array(z.unknown()).max(50) }),
+    z.object({ type: z.literal("follow_up"), conversationId: z.string().uuid(), website: z.string().trim().min(3).max(2048), briefVersion: z.number().int().positive(), brief: briefSchema, leads: z.array(z.unknown()).max(100).default([]), messages: z.array(z.unknown()).max(50) }),
+  ]),
 });
 
 function latestPrompt(messages: UIMessage[]) {
   const message = [...messages].reverse().find((item) => item.role === "user");
-  return message?.parts
-    .filter((part) => part.type === "text")
-    .map((part) => part.text)
-    .join(" ")
-    .trim() ?? "";
+  return message?.parts.filter((part) => part.type === "text").map((part) => part.text).join(" ").trim() ?? "";
 }
 
-function classify(prompt: string) {
-  const lower = prompt.toLowerCase();
-  if (/\b(find more|more stores|expand|additional)\b/.test(lower)) return "find_more";
-  if (/\b(shortlist|save|select)\b/.test(lower)) return "shortlist";
-  if (/\b(why|explain|how did)\b/.test(lower)) return "explain";
-  if (/\b(only|filter|show|sort)\b/.test(lower)) return "filter";
-  return "discover";
+function hasRequiredBriefFields(brief: ProductBrief) {
+  return Boolean(brief.distributionGoal.trim() && brief.categories.length && brief.targetMarkets.length && brief.idealRetailerTypes.length);
 }
 
-async function classifyAction(prompt: string) {
-  const key = process.env.GEMINI_KEY ?? process.env.GEMINI_API_KEY;
-  if (!key) return classify(prompt);
-  try {
-    const google = createGoogle({ apiKey: key });
-    const result = await generateText({
-      model: google(process.env.GEMINI_MODEL ?? "gemini-3.5-flash-lite"),
-      system: "Classify the user's follow-up into exactly one action. Use discover for a new search, filter for deterministic filtering of current results, find_more for additional Places searches, explain for evidence questions, shortlist for selection changes, or clarify when intent is missing.",
-      prompt,
-      output: Output.object({ schema: z.object({ action: z.enum(["discover", "filter", "find_more", "explain", "shortlist", "clarify"]) }) }),
-    });
-    return result.output.action;
-  } catch {
-    return classify(prompt);
-  }
+function writeText(writer: Parameters<NonNullable<Parameters<typeof createUIMessageStream<StockistMessage>>[0]["execute"]>>[0]["writer"], text: string, id: string) {
+  writer.write({ type: "text-start", id });
+  writer.write({ type: "text-delta", id, delta: text });
+  writer.write({ type: "text-end", id });
 }
 
-function summary(response: DiscoveryResponse, prompt: string) {
+function resultPart(response: DiscoveryResponse, briefVersion: number): RetailerResults {
+  return {
+    leadIds: response.leads.map((lead) => lead.id),
+    leads: response.leads,
+    resultSetId: response.runId,
+    briefVersion,
+    createdAt: response.completedAt,
+    demo: response.demo,
+    sources: response.sources,
+    strategy: response.strategy,
+  };
+}
+
+function responseSummary(response: DiscoveryResponse, prompt: string) {
   const top = response.leads.slice(0, 3).map((lead) => lead.name).join(", ");
-  return `${response.leads.length} retailer${response.leads.length === 1 ? "" : "s"} matched your goal${prompt ? `: “${prompt}”` : ""}. The strongest early signals are ${top || "still being evaluated"}. Use the follow-up box below to narrow the market, find more stores, or shortlist leads.`;
+  return `${response.leads.length} retailer${response.leads.length === 1 ? "" : "s"} matched the confirmed brief${prompt ? ` for “${prompt}”` : ""}. Strongest early signals: ${top || "none yet"}.`;
 }
 
 export async function POST(request: Request) {
-  const parsed = requestSchema.safeParse(await request.json());
-  if (!parsed.success) return Response.json({ error: "Invalid chat request." }, { status: 400 });
-
-  const messages = parsed.data.messages as UIMessage[];
-  const prompt = latestPrompt(messages);
+  const raw = await request.json() as Record<string, unknown>;
+  const nestedBody = raw.body && typeof raw.body === "object" ? raw.body as Record<string, unknown> : undefined;
+  const requestMessages = Array.isArray(raw.messages) ? raw.messages : Array.isArray(nestedBody?.messages) ? nestedBody.messages : [];
+  const actionCandidate = raw.action ?? nestedBody?.action;
+  const action = actionCandidate && typeof actionCandidate === "object"
+    ? { ...(actionCandidate as Record<string, unknown>), messages: Array.isArray((actionCandidate as Record<string, unknown>).messages) ? (actionCandidate as Record<string, unknown>).messages : requestMessages }
+    : { type: "analyze_product", conversationId: raw.conversationId ?? nestedBody?.conversationId, website: raw.website ?? nestedBody?.website, distributionGoal: raw.distributionGoal ?? raw.prompt ?? nestedBody?.distributionGoal ?? "", messages: requestMessages };
+  const parsed = requestSchema.safeParse({ ...raw, action });
+  if (!parsed.success) return Response.json({ error: "Invalid chat action or product brief.", details: parsed.error.issues }, { status: 400 });
+  const input = parsed.data.action;
   const runId = crypto.randomUUID();
   const progressId = `progress-${runId}`;
 
   const stream = createUIMessageStream<StockistMessage>({
     execute: async ({ writer }) => {
-      const writeProgress = (data: ChatDataParts["discovery-progress"]) =>
-        writer.write({ type: "data-discovery-progress", id: progressId, data: { ...data, runId } });
-
+      const writeProgress = (data: ChatDataParts["discovery-progress"]) => writer.write({ type: "data-discovery-progress", id: progressId, data: { ...data, runId } });
       try {
-        const action = await classifyAction(prompt);
-        const existingLeads = parsed.data.leads as StoreLead[] | undefined;
-        if (action === "filter" && existingLeads?.length) {
-          const lower = prompt.toLowerCase();
-          const filtered = existingLeads.filter((lead) => {
-            if (/email/.test(lower) && !lead.email) return false;
-            const score = lower.match(/(?:above|over|at least)\s+(\d+)/)?.[1];
-            if (score && lead.score < Number(score)) return false;
-            return true;
-          });
-          writer.write({ type: "data-retailer-results", id: `results-${runId}`, data: { leadIds: filtered.map((lead) => lead.id), leads: filtered, resultSetId: runId, demo: false, sources: ["Existing conversation results"] } });
-          writeProgress({ stage: "complete", label: "Filter applied locally", storesRetained: filtered.length });
-          const textId = `summary-${runId}`;
-          writer.write({ type: "text-start", id: textId });
-          writer.write({ type: "text-delta", id: textId, delta: `I filtered the existing retailer pool and kept ${filtered.length} store${filtered.length === 1 ? "" : "s"}.` });
-          writer.write({ type: "text-end", id: textId });
+        if (input.type === "analyze_product") {
+          writeProgress({ stage: "analyzing_product", label: "Reading the product website" });
+          const analyzed = await analyzeProductBrief({ website: input.website, distributionGoal: input.distributionGoal, conversationId: input.conversationId });
+          writer.write({ type: "data-product-brief", id: `brief-${input.conversationId}-1`, data: analyzed.revision as ProductBriefRevision });
+          writeProgress({ stage: "awaiting_brief_confirmation", label: "Review your product brief" });
+          writeText(writer, "I extracted a product brief for you to review. Confirm it when the category, market, retailer type, and distribution goal look right.", `summary-${runId}`);
           return;
         }
-        writeProgress({ stage: "analyzing_product", label: "Reading the product website" });
-        const response = await discoverStores({ website: parsed.data.website, prompt });
-        if (request.signal.aborted) throw new DOMException("Request cancelled", "AbortError");
 
-        writer.write({ type: "data-product-profile", id: `profile-${runId}`, data: response.product });
+        const brief = input.type === "confirm_brief" ? input.revision.brief : input.brief;
+        const version = input.type === "confirm_brief" ? input.revision.version : input.briefVersion;
+        if (input.type === "confirm_brief" && !hasRequiredBriefFields(brief)) {
+          writer.write({ type: "data-warning", data: { message: "Add a distribution goal, category, target market, and retailer type before confirming." } });
+          writeProgress({ stage: "awaiting_brief_confirmation", label: "Complete the required brief fields" });
+          return;
+        }
+
+        const confirmedRevision: ProductBriefRevision = {
+          conversationId: input.conversationId,
+          website: brief.website,
+          version,
+          status: "confirmed",
+          source: input.type === "confirm_brief" ? input.revision.source : "context",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          needsReview: false,
+          brief,
+        };
+        if (input.type === "confirm_brief") writer.write({ type: "data-product-brief", id: `brief-${input.conversationId}-${version}`, data: confirmedRevision });
         writeProgress({ stage: "planning_search", label: "Building a retail search strategy" });
-        writeProgress({ stage: "searching_places", label: "Finding relevant stores", candidatesFound: response.leads.length, queriesCompleted: response.strategy.queries.length });
+
+        if (input.type === "follow_up" && input.leads.length && /\b(only|filter|show)\b/i.test(latestPrompt(input.messages as UIMessage[]))) {
+          const prompt = latestPrompt(input.messages as UIMessage[]).toLowerCase();
+          const filtered = (input.leads as StoreLead[]).filter((lead) => !/email/.test(prompt) || Boolean(lead.email));
+          const filteredResult: RetailerResults = { leadIds: filtered.map((lead) => lead.id), leads: filtered, resultSetId: runId, briefVersion: version, createdAt: new Date().toISOString(), demo: false, sources: ["Existing conversation results"] };
+          writer.write({ type: "data-retailer-results", id: `results-${runId}`, data: filteredResult });
+          writeProgress({ stage: "complete", label: "Filter applied locally", storesRetained: filtered.length });
+          writeText(writer, `I filtered the existing result set and kept ${filtered.length} stores.`, `summary-${runId}`);
+          return;
+        }
+
+        writeProgress({ stage: "searching_places", label: "Finding relevant stores" });
+        const response = await discoverStores({ brief, briefVersion: version });
+        if (request.signal.aborted) throw new DOMException("Request cancelled", "AbortError");
+        const results = resultPart(response, version);
+        writer.write({ type: "data-retailer-results", id: `results-${response.runId}`, data: results });
         writeProgress({ stage: "enriching_contacts", label: "Checking public contact pages", contactsChecked: response.leads.length, emailsFound: response.leads.filter((lead) => lead.email).length });
         writeProgress({ stage: "scoring_retailers", label: "Ranking retailer fit", storesRetained: response.leads.length });
-        writer.write({
-          type: "data-retailer-results",
-          id: `results-${runId}`,
-          data: {
-            leadIds: response.leads.map((lead) => lead.id),
-            leads: response.leads,
-            resultSetId: response.runId,
-            demo: response.demo,
-            sources: response.sources,
-            strategy: response.strategy,
-          },
-        });
         writeProgress({ stage: "complete", label: "Discovery complete", storesRetained: response.leads.length });
 
         const key = process.env.GEMINI_KEY ?? process.env.GEMINI_API_KEY;
         if (key) {
           const google = createGoogle({ apiKey: key });
-          const result = streamText({
-            model: google(process.env.GEMINI_MODEL ?? "gemini-3.5-flash-lite"),
-            system: "You are the concise assistant in a retailer discovery app. Summarize the provided discovery result in two short sentences. Do not invent facts.",
-            prompt: JSON.stringify({ product: response.product, leads: response.leads.slice(0, 8), userPrompt: prompt }),
-          });
-          writer.merge(result.toUIMessageStream());
-        } else {
-          const text = summary(response, prompt);
-          const textId = `summary-${runId}`;
-          writer.write({ type: "text-start", id: textId });
-          writer.write({ type: "text-delta", id: textId, delta: text });
-          writer.write({ type: "text-end", id: textId });
-        }
+          const generated = streamText({ model: google(process.env.GEMINI_MODEL ?? "gemini-3.5-flash-lite"), system: "Summarize only the confirmed retailer discovery result in two concise sentences. Never invent facts.", prompt: JSON.stringify({ brief, leads: response.leads.slice(0, 8) }) });
+          writer.merge(generated.toUIMessageStream());
+        } else writeText(writer, responseSummary(response, brief.distributionGoal), `summary-${runId}`);
       } catch (error) {
         const cancelled = error instanceof DOMException && error.name === "AbortError";
         writeProgress({ stage: cancelled ? "cancelled" : "failed", label: cancelled ? "Run cancelled" : "Discovery failed" });
@@ -142,6 +181,5 @@ export async function POST(request: Request) {
       }
     },
   });
-
   return createUIMessageStreamResponse({ stream, headers: { "Cache-Control": "no-store" } });
 }
