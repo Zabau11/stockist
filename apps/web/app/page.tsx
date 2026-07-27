@@ -21,7 +21,6 @@ export default async function DashboardPage({
     <DiscoveryApp
       initialWebsite={website}
       initialPrompt={firstValue(params.prompt)}
-      autoStart={Boolean(website.trim())}
     />
   );
 }

@@ -22,6 +22,11 @@ export type StoreLead = {
   score: number;
   reason: string;
   contactSource?: string;
+  scoreBreakdown?: { fit: number; contactability: number; reputation: number };
+  fitReasons?: string[];
+  riskFlags?: string[];
+  retailerKind?: "independent" | "regional chain" | "national chain" | "unknown";
+  contactConfidence?: "publicly found" | "unavailable";
 };
 
 export type DiscoveryResponse = {

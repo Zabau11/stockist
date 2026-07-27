@@ -9,9 +9,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ai-sdk/google": "^4.0.24",
+    "@ai-sdk/react": "^4.0.40",
     "@stockist/discovery": "*",
+    "ai": "^7.0.37",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "idb": "^8.0.3",
     "lucide-react": "^0.468.0",
     "next": "^16.0.0",
     "radix-ui": "^1.6.7",
