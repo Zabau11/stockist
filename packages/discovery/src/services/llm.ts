@@ -6,6 +6,10 @@ type SearchStrategy = {
   summary: string;
 };
 
+const defaultGeminiBaseUrl =
+  "https://generativelanguage.googleapis.com/v1beta/openai";
+const defaultGeminiModel = "gemini-3.5-flash-lite";
+
 function fallbackStrategy(
   product: ProductProfile,
   prompt: string,
@@ -39,15 +43,19 @@ export async function createSearchStrategy(
   product: ProductProfile,
   prompt: string,
 ): Promise<{ strategy: SearchStrategy; live: boolean }> {
-  const apiKey = process.env.LLM_API_KEY;
+  const apiKey =
+    process.env.GEMINI_KEY ??
+    process.env.GEMINI_API_KEY ??
+    process.env.LLM_API_KEY;
+
   if (!apiKey) {
     return { strategy: fallbackStrategy(product, prompt), live: false };
   }
 
-  const baseUrl = (process.env.LLM_BASE_URL ?? "https://api.openai.com/v1").replace(
-    /\/$/,
-    "",
-  );
+  const baseUrl = (
+    process.env.LLM_BASE_URL ?? defaultGeminiBaseUrl
+  ).replace(/\/$/, "");
+
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -55,8 +63,7 @@ export async function createSearchStrategy(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: process.env.LLM_MODEL ?? "gpt-4.1-mini",
-      temperature: 0.2,
+      model: process.env.LLM_MODEL ?? defaultGeminiModel,
       response_format: { type: "json_object" },
       messages: [
         {

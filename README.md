@@ -45,7 +45,8 @@ Dashboard variables are documented in `apps/web/.env.example`:
 
 - `CONTEXT_DEV_API_KEY` — structured website extraction
 - `GOOGLE_PLACES_API_KEY` — Places API (New), with Text Search enabled
-- `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL` — any OpenAI-compatible model provider
+- `GEMINI_KEY` — Gemini API key; defaults to the free-tier `gemini-3.5-flash-lite` model
+- `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL` — optional overrides for another OpenAI-compatible provider or model
 - `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` — optional Firestore persistence
 - `NEXT_PUBLIC_MARKETING_URL` — the landing-page origin
 
