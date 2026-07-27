@@ -7,12 +7,9 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently -n marketing,dashboard -c magenta,cyan \"npm run dev -w @stockist/marketing\" \"npm run dev -w @stockist/dashboard\"",
-    "build": "npm run build -w @stockist/marketing && npm run build -w @stockist/dashboard",
-    "typecheck": "npm run typecheck -w @stockist/discovery && npm run typecheck -w @stockist/marketing && npm run typecheck -w @stockist/dashboard"
-  },
-  "devDependencies": {
-    "concurrently": "^9.2.1"
+    "dev": "npm run dev -w @stockist/web",
+    "build": "npm run build -w @stockist/web",
+    "typecheck": "npm run typecheck -w @stockist/discovery && npm run typecheck -w @stockist/web"
   },
   "engines": {
     "node": ">=22"

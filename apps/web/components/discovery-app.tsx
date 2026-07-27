@@ -30,7 +30,6 @@ import { chatRepository } from "@/lib/chat-repository";
 import type { Conversation, DiscoveryProgress, RetailerResults, StockistMessage } from "@/lib/chat-types";
 import type { StoreLead } from "@/lib/types";
 
-const marketingUrl = (process.env.NEXT_PUBLIC_MARKETING_URL ?? "http://localhost:3000").replace(/\/$/, "");
 const suggestions = ["Find independent stores in London", "Only show stores with email", "Find 25 more in Manchester"];
 
 type DiscoveryAppProps = { initialWebsite?: string; initialPrompt?: string; conversationId?: string };
@@ -62,6 +61,10 @@ export function DiscoveryApp({ initialWebsite = "", initialPrompt = "", conversa
     transport: new DefaultChatTransport({ api: "/api/chat" }),
   });
   const busy = status === "submitted" || status === "streaming";
+  const messageSignature = useMemo(
+    () => messages.map((message) => `${message.id}:${message.parts.map((part) => part.type === "text" ? `text-${part.text.length}` : part.type).join(",")}`).join("|"),
+    [messages],
+  );
 
   const loadHistory = useCallback(async () => setHistory((await chatRepository.listConversations()).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))), []);
 
@@ -71,7 +74,7 @@ export function DiscoveryApp({ initialWebsite = "", initialPrompt = "", conversa
     if (conversationId || !initialWebsite.trim() || started.current) return;
     started.current = true;
     const id = crypto.randomUUID();
-    router.replace(`/chat/${id}?website=${encodeURIComponent(initialWebsite)}&prompt=${encodeURIComponent(initialPrompt)}`);
+    router.replace(`/dashboard/${id}?website=${encodeURIComponent(initialWebsite)}&prompt=${encodeURIComponent(initialPrompt)}`);
   }, [conversationId, initialPrompt, initialWebsite, router]);
 
   useEffect(() => {
@@ -101,7 +104,7 @@ export function DiscoveryApp({ initialWebsite = "", initialPrompt = "", conversa
     const profile = [...messages].reverse().flatMap((message) => message.parts).find((part) => part.type === "data-product-profile") as { data: Conversation["productProfile"] } | undefined;
     const next = { ...(conversation ?? { id: conversationId, website, title: titleFor(website, initialPrompt), createdAt: new Date().toISOString(), shortlistIds: [] }), updatedAt: new Date().toISOString(), status: busy ? "running" : "ready", activeResultSetId: latestResult?.data.resultSetId, productProfile: profile?.data } as Conversation;
     setConversation(next); void chatRepository.saveConversation(next); void chatRepository.saveMessages(conversationId, messages); if (latestResult) void chatRepository.saveLeads(conversationId, latestResult.data.leads); void loadHistory();
-  }, [busy, conversation, conversationId, initialPrompt, initialized, loadHistory, messages, website]);
+  }, [busy, conversationId, initialPrompt, initialized, loadHistory, messageSignature, website]);
 
   const results = useMemo(() => {
     for (const message of [...messages].reverse()) for (const part of [...message.parts].reverse()) if (part.type === "data-retailer-results") return (part as { data: RetailerResults }).data;
@@ -113,9 +116,9 @@ export function DiscoveryApp({ initialWebsite = "", initialPrompt = "", conversa
   }, [messages]);
   const filteredLeads = results?.leads.filter((lead) => !query || `${lead.name} ${lead.address} ${lead.types.join(" ")}`.toLowerCase().includes(query.toLowerCase())) ?? [];
 
-  function newChat() { router.push("/"); setMobileSidebar(false); }
+  function newChat() { router.push("/dashboard"); setMobileSidebar(false); }
   function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const text = draftPrompt.trim(); if (!text || !conversationId || busy) return; sendMessage({ text }, { body: { conversationId, website, leads: results?.leads } }); setDraftPrompt(""); }
-  function beginConversation() { if (!website.trim()) return; const id = crypto.randomUUID(); router.replace(`/chat/${id}?website=${encodeURIComponent(website)}&prompt=${encodeURIComponent(draftPrompt)}`); }
+  function beginConversation() { if (!website.trim()) return; const id = crypto.randomUUID(); router.replace(`/dashboard/${id}?website=${encodeURIComponent(website)}&prompt=${encodeURIComponent(draftPrompt)}`); }
   function toggleShortlist(id: string) { setShortlist((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]); }
   function exportCsv(scope: "all" | "shortlist") { if (!results) return; const leads = scope === "shortlist" ? results.leads.filter((lead) => shortlist.includes(lead.id)) : filteredLeads; const headers = ["store", "address", "score", "reason", "email", "phone", "website", "mapsUrl", "rating", "contactSource"]; const escape = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""').replace(/^[=+\-@]/, "'$&")}"`; const csv = [headers, ...leads.map((lead) => headers.map((header) => escape(lead[header as keyof StoreLead])))] .map((row) => row.join(",")).join("\n"); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); link.download = `stockist-${scope}.csv`; link.click(); URL.revokeObjectURL(link.href); }
 
@@ -129,9 +132,9 @@ export function DiscoveryApp({ initialWebsite = "", initialPrompt = "", conversa
         </div>
       </div>
       <Button className="mt-5 justify-start gap-2 rounded-lg" onClick={newChat}><SquarePen className="size-4" />{!collapsed && "New chat"}</Button>
-      {!collapsed && <ConversationList history={history} activeId={conversationId} onSelect={(id) => router.push(`/chat/${id}`)} onDelete={async (id) => { await chatRepository.deleteConversation(id); await loadHistory(); if (id === conversationId) newChat(); }} />}
+      {!collapsed && <ConversationList history={history} activeId={conversationId} onSelect={(id) => router.push(`/dashboard/${id}`)} onDelete={async (id) => { await chatRepository.deleteConversation(id); await loadHistory(); if (id === conversationId) newChat(); }} />}
     </aside>
-    {mobileSidebar && <div className="fixed inset-0 z-40 bg-black/20 lg:hidden" onClick={() => setMobileSidebar(false)}><aside className="h-full w-[280px] bg-card p-3" onClick={(event) => event.stopPropagation()}><SidebarBrand /><Button className="mt-5 w-full justify-start gap-2" onClick={newChat}><Plus className="size-4" />New chat</Button><ConversationList history={history} activeId={conversationId} onSelect={(id) => { router.push(`/chat/${id}`); setMobileSidebar(false); }} onDelete={async (id) => { await chatRepository.deleteConversation(id); await loadHistory(); }} /></aside></div>}
+    {mobileSidebar && <div className="fixed inset-0 z-40 bg-black/20 lg:hidden" onClick={() => setMobileSidebar(false)}><aside className="h-full w-[280px] bg-card p-3" onClick={(event) => event.stopPropagation()}><SidebarBrand /><Button className="mt-5 w-full justify-start gap-2" onClick={newChat}><Plus className="size-4" />New chat</Button><ConversationList history={history} activeId={conversationId} onSelect={(id) => { router.push(`/dashboard/${id}`); setMobileSidebar(false); }} onDelete={async (id) => { await chatRepository.deleteConversation(id); await loadHistory(); }} /></aside></div>}
     <main className="flex min-w-0 flex-1 flex-col">
       <header className="flex h-16 shrink-0 items-center justify-between border-b px-4 sm:px-6"><div className="flex min-w-0 items-center gap-3"><Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileSidebar(true)} aria-label="Open sidebar"><Menu /></Button><div className="min-w-0"><p className="truncate text-sm font-medium">{conversation?.title ?? "New discovery"}</p>{website && <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><Globe2 className="size-3" />{hostname(website)}</div>}</div></div><div className="flex items-center gap-2">{results && <><Badge variant="secondary">{shortlist.length} shortlisted</Badge><Button variant="outline" size="sm" onClick={() => exportCsv("all")}><Download className="size-3.5" /> CSV</Button></>}</div></header>
       <div className="flex-1 overflow-y-auto"><div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-4 pb-36 pt-8 sm:px-8">
@@ -145,7 +148,7 @@ export function DiscoveryApp({ initialWebsite = "", initialPrompt = "", conversa
   </div>;
 }
 
-function SidebarBrand({ collapsed = false }: { collapsed?: boolean }) { return <a href={marketingUrl} className="flex items-center gap-2 px-2 py-2 text-sm font-semibold"><span className="flex size-8 items-center justify-center rounded-xl bg-foreground text-background"><Store className="size-4" /></span>{!collapsed && "Stockist"}</a>; }
+function SidebarBrand({ collapsed = false }: { collapsed?: boolean }) { return <a href="/" className="flex items-center gap-2 px-2 py-2 text-sm font-semibold"><span className="flex size-8 items-center justify-center rounded-xl bg-foreground text-background"><Store className="size-4" /></span>{!collapsed && "Stockist"}</a>; }
 function ConversationList({ history, activeId, onSelect, onDelete }: { history: Conversation[]; activeId?: string; onSelect: (id: string) => void; onDelete: (id: string) => void }) { return <div className="mt-7 flex-1 space-y-5 overflow-y-auto">{["Today", "Previous 7 days", "Older"].map((group) => { const items = history.filter((item) => group === "Today" ? Date.now() - Date.parse(item.updatedAt) < 86400000 : group === "Previous 7 days" ? Date.now() - Date.parse(item.updatedAt) < 604800000 : Date.now() - Date.parse(item.updatedAt) >= 604800000); return items.length ? <section key={group}><p className="mb-2 px-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{group}</p>{items.map((item) => <div key={item.id} className={`group flex items-center gap-1 rounded-lg px-2 py-2 text-sm ${item.id === activeId ? "bg-secondary" : "hover:bg-secondary/70"}`}><button className="min-w-0 flex-1 truncate text-start" onClick={() => onSelect(item.id)}>{item.title}</button><button className="hidden rounded p-1 text-muted-foreground hover:text-destructive group-hover:block" onClick={() => onDelete(item.id)} aria-label={`Delete ${item.title}`}><Trash2 className="size-3.5" /></button></div>)}</section> : null; })}</div>; }
 function EmptyState({ website, setWebsite, prompt, setPrompt, onStart }: { website: string; setWebsite: (value: string) => void; prompt: string; setPrompt: (value: string) => void; onStart: () => void }) { return <div className="flex flex-1 flex-col items-center justify-center py-16 text-center"><div className="mb-5 flex size-12 items-center justify-center rounded-2xl bg-secondary"><Sparkles className="size-5" /></div><h1 className="text-3xl font-semibold tracking-tight">What should we find?</h1><p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">Attach a product website and describe the retailers you want to reach.</p><div className="mt-8 w-full max-w-xl space-y-3 text-start"><div className="flex items-center gap-2 rounded-xl border bg-card px-3 py-2"><Globe2 className="size-4 text-muted-foreground" /><Input value={website} onChange={(event) => setWebsite(event.target.value)} placeholder="Product website, e.g. yourbrand.com" className="border-0 shadow-none focus-visible:ring-0" /><Badge variant="secondary">Required</Badge></div><Textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Example: Independent skincare shops in London that carry premium natural brands." className="min-h-28 resize-none bg-card" /><Button className="w-full" onClick={onStart} disabled={!website.trim() || !prompt.trim()}>Start discovery <ArrowUp /></Button><div className="flex flex-wrap justify-center gap-2 pt-2">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => setPrompt(suggestion)} className="rounded-full border px-3 py-1.5 text-xs text-muted-foreground transition hover:border-foreground hover:text-foreground">{suggestion}</button>)}</div></div></div>; }
 function MessageView({ message, progress, onSelectLead, results, shortlist, onToggle }: { message: StockistMessage; progress?: DiscoveryProgress; onSelectLead: (lead: StoreLead) => void; results?: RetailerResults; shortlist: string[]; onToggle: (id: string) => void }) { const text = message.parts.filter((part) => part.type === "text").map((part) => part.text).join(""); if (!text && message.role !== "assistant") return null; return <article className={`mb-6 flex ${message.role === "user" ? "justify-end" : "justify-start"}`}><div className={message.role === "user" ? "max-w-[80%] rounded-2xl bg-secondary px-4 py-3 text-sm" : "max-w-3xl text-sm leading-7"}>{text && <p className="whitespace-pre-wrap">{text}</p>}{message.role === "assistant" && progress && <ProgressBlock progress={progress} />}{message.role === "assistant" && results && <div className="mt-3 flex flex-wrap gap-2">{results.leads.slice(0, 3).map((lead) => <button key={lead.id} className="rounded-lg border px-2.5 py-1.5 text-xs hover:bg-secondary" onClick={() => onSelectLead(lead)}>{lead.name} · {lead.score}</button>)}</div>}</div></article>; }
