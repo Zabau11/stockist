@@ -1,5 +1,5 @@
-import { ChatDashboard } from "@/components/chat-dashboard";
+import { UgcAgentDashboard } from "@/components/ugc-dashboard/dashboard";
 
 export default function DashboardPage() {
-  return <ChatDashboard />;
+  return <UgcAgentDashboard />;
 }

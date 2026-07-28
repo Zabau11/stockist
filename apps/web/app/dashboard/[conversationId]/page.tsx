@@ -1,6 +1,6 @@
-import { ChatDashboard } from "@/components/chat-dashboard";
+import { UgcAgentDashboard } from "@/components/ugc-dashboard/dashboard";
 
 export default async function ConversationPage({ params }: { params: Promise<{ conversationId: string }> }) {
   const { conversationId } = await params;
-  return <ChatDashboard initialConversationId={conversationId} />;
+  return <UgcAgentDashboard initialConversationId={conversationId} />;
 }

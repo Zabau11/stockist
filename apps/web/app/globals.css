@@ -1,5 +1,79 @@
+@import url("https://api.fontshare.com/v2/css?f[]=satoshi@300,400,500,700,900&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
+@plugin "daisyui" {
+  themes: false;
+}
+
+@plugin "daisyui/theme" {
+  name: "ugcagentlight";
+  default: false;
+  prefersdark: false;
+  color-scheme: light;
+  --color-base-100: #ffffff;
+  --color-base-200: #f4f4f4;
+  --color-base-300: #e7e7e7;
+  --color-base-content: #121212;
+  --color-primary: #3847fe;
+  --color-primary-content: #ffffff;
+  --color-secondary: #212121;
+  --color-secondary-content: #ffffff;
+  --color-accent: #3847fe;
+  --color-accent-content: #ffffff;
+  --color-neutral: #212121;
+  --color-neutral-content: #f6f6f6;
+  --color-info: #4d69ff;
+  --color-info-content: #ffffff;
+  --color-success: #28b76d;
+  --color-success-content: #ffffff;
+  --color-warning: #d98e04;
+  --color-warning-content: #ffffff;
+  --color-error: #fa4244;
+  --color-error-content: #ffffff;
+  --radius-selector: 0.625rem;
+  --radius-field: 0.625rem;
+  --radius-box: 1rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+@plugin "daisyui/theme" {
+  name: "ugcagentdark";
+  default: false;
+  prefersdark: true;
+  color-scheme: dark;
+  --color-base-100: #121212;
+  --color-base-200: #0b0b0b;
+  --color-base-300: #2a2a2a;
+  --color-base-content: #e7e7e7;
+  --color-primary: #4d69ff;
+  --color-primary-content: #ffffff;
+  --color-secondary: #e7e7e7;
+  --color-secondary-content: #121212;
+  --color-accent: #4d69ff;
+  --color-accent-content: #ffffff;
+  --color-neutral: #e7e7e7;
+  --color-neutral-content: #121212;
+  --color-info: #6e90ff;
+  --color-info-content: #0b0b0b;
+  --color-success: #30cb71;
+  --color-success-content: #0b0b0b;
+  --color-warning: #f5c518;
+  --color-warning-content: #0b0b0b;
+  --color-error: #fa4244;
+  --color-error-content: #ffffff;
+  --radius-selector: 0.625rem;
+  --radius-field: 0.625rem;
+  --radius-box: 1rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
 
 @custom-variant dark (&:is(.dark *));
 
@@ -128,4 +202,10 @@
   html {
     @apply font-sans;
     }
+}
+
+[data-theme^="ugcagent"] {
+  font-family: "Satoshi", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
