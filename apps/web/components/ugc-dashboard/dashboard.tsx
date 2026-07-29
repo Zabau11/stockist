@@ -175,7 +175,7 @@ function SupportLauncher({ open, onClick }: { open: boolean; onClick: () => void
     <button
       type="button"
       onClick={onClick}
-      className={`fixed bottom-[calc(6rem+env(safe-area-inset-bottom))] right-3 z-30 grid size-14 place-items-center rounded-full border shadow-[0_12px_30px_rgba(56,71,254,0.28)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_34px_rgba(56,71,254,0.34)] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-base-100 sm:bottom-5 sm:right-5 ${
+      className={`fixed bottom-[calc(6rem+env(safe-area-inset-bottom))] right-3 z-30 grid size-14 place-items-center rounded-full border shadow-[0_12px_30px_rgba(111,127,82,0.28)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_34px_rgba(111,127,82,0.34)] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-base-100 sm:bottom-5 sm:right-5 ${
         open
           ? "border-base-content/10 bg-neutral text-neutral-content"
           : "border-base-300 bg-primary text-primary-content"
